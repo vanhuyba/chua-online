@@ -28,7 +28,7 @@ const settings = {
   rate: -20,                         // %
   music: true, mo: true, moBpm: 52,
   autoChant: true, chantEveryMin: 3,
-  seatMode: 'auto',                  // auto | 24 | 36 | 64 | 100
+  seatMode: 'auto',                  // auto | 24 | 36 | 64 | 100 | 144 | 225 | 400
   joinOnEnter: false,                // also seat viewers who only enter the room
   gifts: { readAll: true, minDiamonds: 1 },
 };
@@ -45,8 +45,9 @@ let tiktok = null, tiktokState = { status: 'idle', uniqueId: '', error: '' };
 const log = [];
 function addLog(s){ const line = `[${new Date().toLocaleTimeString('vi-VN')}] ${s}`; log.push(line); if (log.length > 300) log.shift(); broadcast({ t:'log', line }, 'control'); console.log(line); }
 
-const CAPS = [24, 36, 64, 100];
-function capacity(){ if (settings.seatMode !== 'auto') return +settings.seatMode; const n = viewers.size; return CAPS.find(c => n <= c) || 100; }
+const CAPS = [24, 36, 64, 100, 144, 225, 400];
+const MAX_SEATS = CAPS.at(-1);
+function capacity(){ if (settings.seatMode !== 'auto') return +settings.seatMode; const n = viewers.size; return CAPS.find(c => n <= c) || MAX_SEATS; }
 
 /* skins: sprites that exist in /assets. Walking strips exist for man / woman / granny. */
 // A comment changes the outfit only when it IS the keyword (≤ 3 words), so "Nam mô A Di Đà Phật" never reads as "nam".
@@ -71,7 +72,7 @@ function seat(id, name, opts = {}){
   id = String(id);
   let v = viewers.get(id);
   if (v){ v.lastAt = Date.now(); if (opts.avatar) v.avatar = opts.avatar; return { v, isNew:false }; }
-  if (viewers.size >= 100){                     // full: the longest-quiet non-donor stands up
+  if (viewers.size >= MAX_SEATS){                     // full: the longest-quiet non-donor stands up
     const quiet = [...viewers.values()].filter(x => x.coins === 0).sort((a,b) => a.lastAt - b.lastAt)[0];
     if (!quiet) return { v:null, isNew:false };
     viewers.delete(quiet.id); broadcast({ t:'leave', id: quiet.id });
@@ -251,7 +252,7 @@ function disconnectTikTok(resetRetry = true){
 const DEMO_NAMES = ['Diệu Hạnh','Minh Tâm','Thiện Đức','Huệ An','Tịnh Nhã','Quảng Trí','Chơn Như','Pháp Hỷ','Nguyên Thanh','Tâm Đăng','Diệu Liên','Trí Hải','Phước Lộc','Hạnh Nguyện','Như Ý','Bảo Châu','Thanh Lương','Từ Tâm','An Lạc','Giác Hoa','Tuệ Minh','Liên Hương','Thu Hà','Ngọc Lan','Đức Anh','Hải Đăng','Mai Anh','Phương Thảo','Trung Kiên','Quang Huy','Bảo Ngọc','Diệu Linh'];
 function fillDemo(n){
   const have = [...viewers.values()].filter(v => v.demo).length;
-  for (let i = have; i < n && viewers.size < 100; i++){
+  for (let i = have; i < n && viewers.size < MAX_SEATS; i++){
     const name = DEMO_NAMES[i % DEMO_NAMES.length] + (i >= DEMO_NAMES.length ? ' ' + (Math.floor(i / DEMO_NAMES.length) + 1) : '');
     seat('demo_' + i, name, { demo: true, skin: ['man','woman','woman','man','granny','monk','nun','child'][i % 8] });
   }
@@ -265,7 +266,7 @@ function onControl(m){
     case 'disconnect': disconnectTikTok(); addLog('Đã ngắt kết nối TikTok'); break;
     case 'chat': { const n = String(m.name || 'Khách').slice(0, 18); onChat('sim_' + n, n, String(m.text || 'Nam mô A Di Đà Phật').slice(0, 120)); break; }
     case 'gift': { const n = String(m.name || 'Khách').slice(0, 18); onGift('sim_' + n, n, String(m.gift || 'Hoa hồng').slice(0, 30), clamp(m.count, 1, 99), clamp(m.diamonds, 1, 50000), undefined, true); break; }
-    case 'fill': fillDemo(clamp(m.n, 1, 100)); addLog(`Đổ người mẫu: ${viewers.size} người`); break;
+    case 'fill': fillDemo(clamp(m.n, 1, MAX_SEATS)); addLog(`Đổ người mẫu: ${viewers.size} người`); break;
     case 'clear': clearSeats(); break;
     case 'bell': broadcast({ t:'bell' }); break;
     case 'mo': broadcast({ t:'mo1' }); break;
@@ -284,7 +285,7 @@ const SETTING_RULES = {
   voice: v => ['vi-VN-NamMinhNeural', 'vi-VN-HoaiMyNeural'].includes(v) ? v : settings.voice,
   pitch: v => clamp(v, -50, 50), rate: v => clamp(v, -50, 50), moBpm: v => clamp(v, 20, 120), chantEveryMin: v => clamp(v, 1, 60),
   music: Boolean, mo: Boolean, autoChant: Boolean, joinOnEnter: Boolean,
-  seatMode: v => ['auto', '24', '36', '64', '100'].includes(String(v)) ? String(v) : 'auto',
+  seatMode: v => ['auto', ...CAPS.map(String)].includes(String(v)) ? String(v) : 'auto',
 };
 const clamp = (v, a, b) => Math.max(a, Math.min(b, Math.round(+v || 0)));
 function applySettings(o){ for (const [k, fn] of Object.entries(SETTING_RULES)) if (k in o) settings[k] = fn(o[k]); }
@@ -296,7 +297,7 @@ const BOT_LINES = ['Nam mô A Di Đà Phật', 'Nam mô Bổn Sư Thích Ca Mâu
 function setBots(on, n, pace){
   clearInterval(botTimer); botTimer = null;
   if (on){
-    n = clamp(n, 1, 100);
+    n = clamp(n, 1, MAX_SEATS);
     for (let i = 0; i < n; i++) seat('bot_' + i, DEMO_NAMES[(i + 7) % DEMO_NAMES.length] + ' ·bot', { demo: true });
     const every = { slow: 4000, mid: 1800, fast: 700 }[pace] || 1800;
     botTimer = setInterval(() => {

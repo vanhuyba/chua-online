@@ -14,16 +14,16 @@ function setup(dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chua-test-'))) {
   vm.createContext(sandbox);
   let code = source.slice(source.indexOf('const TTS_DIR'), source.indexOf('/* -------------------------------------------------------------- server */'));
   vm.runInContext(code + `\nsettings.gifts.readAll=false; settings.gifts.minDiamonds=Infinity;
-    globalThis.api={seat,onGift,expireSeats,viewers,totals,connectTikTok,disconnectTikTok,
+    globalThis.api={seat,capacity,onGift,expireSeats,viewers,totals,connectTikTok,disconnectTikTok,
     useLib(lib){TikTokLib=lib},get state(){return tiktokState}};`, sandbox);
   return { api:sandbox.api, dir, messages, timers };
 }
 test('full room still announces and persists a new donor; history survives restart', () => {
   const env=setup();
   try {
-    for(let i=0;i<100;i++){ const {v}=env.api.seat('u'+i,'User '+i); v.coins=1; }
+    for(let i=0;i<400;i++){ const {v}=env.api.seat('u'+i,'User '+i); v.coins=1; }
     env.api.onGift('new','New donor','Rose',3,2);
-    assert.equal(env.api.viewers.size,100);
+    assert.equal(env.api.viewers.size,400);
     assert.equal(env.messages.at(-1).t,'gift');
     assert.equal(env.messages.at(-1).total,6);
     const restored=setup(env.dir);
@@ -126,5 +126,17 @@ test('idle seats expire, active seats stay and returning donors retain gift tota
     assert.equal(env.messages.at(-1).t, 'leave');
     assert.equal(env.messages.at(-1).id, 'donor');
     assert.equal(env.api.seat('donor', 'Donor').v.coins, 3);
+  } finally { fs.rmSync(env.dir, {recursive:true, force:true}); }
+});
+
+test('automatic capacity expands beyond 100 up to 400 with unique seats', () => {
+  const env = setup();
+  try {
+    for (let i=0; i<101; i++) env.api.seat('u'+i, 'User '+i);
+    assert.equal(env.api.viewers.size, 101);
+    assert.equal(env.api.capacity(), 144);
+    for (let i=101; i<400; i++) env.api.seat('u'+i, 'User '+i);
+    assert.equal(env.api.viewers.size, 400);
+    assert.equal(env.api.capacity(), 400);
   } finally { fs.rmSync(env.dir, {recursive:true, force:true}); }
 });

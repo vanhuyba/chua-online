@@ -102,7 +102,7 @@ function avatar(url){ if(!url) return null; let im=avatars.get(url); if(!im){ im
 /* ======================= seats ======================= */
 // Floor trapezoid in the painting: back row just below the altar, front row near the bottom.
 const FLOOR = { yTop: 1215, yBot: 1845, halfTop: 290, halfBot: 430 };
-const GRID = { 24:[6,4], 36:[6,6], 64:[8,8], 100:[10,10] };
+const GRID = { 24:[6,4], 36:[6,6], 64:[8,8], 100:[10,10], 144:[12,12], 225:[15,15], 400:[20,20] };
 let cap = 24, seats = [];
 function layout(c){
   cap = c; const [cols, rows] = GRID[c] || GRID[24]; seats = [];
