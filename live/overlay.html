@@ -67,7 +67,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
   <canvas id="c" width="1080" height="1920"></canvas>
   <div id="plaque" class="ui"><div id="title">Chánh Điện Tịnh Tâm</div><div id="subtitle">Nam Mô A Di Đà Phật</div></div>
   <div id="pills" class="ui">
-    <div class="pill"><span class="dot"></span><span id="count">0/24</span><small>đang<br>thiền</small></div>
+    <div class="pill"><span class="dot"></span><span id="count">0/24</span><small>tương tác<br>gần đây</small></div>
     <div class="pill">⏱ <span id="timer">00:00:00</span></div>
   </div>
   <div id="guide" class="card ui">
@@ -164,13 +164,16 @@ function showChant(text){ document.getElementById('chantText').textContent=text;
 /* ======================= audio ======================= */
 let AC=null, master=null, musicGain=null, sfx=null, settings={ music:true, mo:true, moBpm:52 };
 const TRACKS=['/assets/music/music1.mp3','/assets/music/music2.mp3']; let trackIdx=Math.floor(Math.random()*TRACKS.length), musicEl=null;
-document.getElementById('unmute').onclick = e => { e.currentTarget.remove(); startAudio(); };
-function startAudio(){
+document.getElementById('unmute').onclick = () => startAudio();
+async function startAudio(){
+  if (AC) { await AC.resume(); if (AC.state==='running') document.getElementById('unmute')?.remove(); playTTS(); return; }
   AC = new (window.AudioContext||window.webkitAudioContext)();
   master = AC.createGain(); master.gain.value=.9; master.connect(AC.destination);
   musicGain = AC.createGain(); musicGain.gain.value=settings.music?.5:0; musicGain.connect(master);
   sfx = AC.createGain(); sfx.gain.value=1; sfx.connect(master);
-  nextTrack(); scheduleMo(); bell();
+  await AC.resume();
+  if (AC.state==='running') document.getElementById('unmute')?.remove();
+  nextTrack(); scheduleMo(); bell(); playTTS();
 }
 function nextTrack(){
   if (musicEl){ musicEl.pause(); }
@@ -193,18 +196,22 @@ function mo(){
 let moTimer=null; function scheduleMo(){ clearInterval(moTimer); if (AC && settings.mo) moTimer=setInterval(mo, 60000/Math.max(20,settings.moBpm||52)); }
 // server-made voice lines play one after another
 const ttsQ=[]; let ttsPlaying=false;
-function queueTTS(url, onStart){ ttsQ.push({url,onStart}); playTTS(); }
+function queueTTS(url, onStart){ if (ttsQ.length >= 10) ttsQ.shift(); ttsQ.push({url,onStart,at:Date.now()}); playTTS(); }
 function playTTS(){
   if (ttsPlaying || !ttsQ.length || !AC) return; ttsPlaying=true;
+  while (ttsQ.length && Date.now()-ttsQ[0].at > 60000) ttsQ.shift();
+  if (!ttsQ.length) { ttsPlaying=false; return; }
   const {url,onStart}=ttsQ.shift(); const el=new Audio(url); const src=AC.createMediaElementSource(el); const g=AC.createGain(); g.gain.value=1.25; src.connect(g); g.connect(master);
-  el.onplay=()=>{ duck(true); onStart&&onStart(); }; el.onended=el.onerror=()=>{ duck(false); ttsPlaying=false; setTimeout(playTTS,350); };
-  el.play().catch(()=>{ ttsPlaying=false; });
+  let finished=false; const finish=()=>{ if(finished)return; finished=true; clearTimeout(timeout); el.pause(); src.disconnect(); g.disconnect(); duck(false); ttsPlaying=false; setTimeout(playTTS,350); };
+  const timeout=setTimeout(finish,45000);
+  el.onplay=()=>{ duck(true); onStart&&onStart(); }; el.onended=el.onerror=finish;
+  el.play().catch(finish);
 }
 
 /* ======================= effects ======================= */
 const fx=[], petals=[];
 function giftFx(v, tier){
-  v.glow=1; v.bow=1;
+  v.glow=1; v.bow=1; v.giftT=7;
   const kind = tier>=3?'bell':tier>=2?'lotus':'incense', s=v.seat?.scale||.4;
   fx.push({kind, x:v.x, y:v.y-220*s, t:0, life: tier>=3?3.4:2.4, scale: s*(tier>=3?1.5:1.1)});
   for (let i=0;i<(tier>=3?22:tier>=2?10:4);i++) petals.push({x:v.x+(Math.random()-.5)*120, y:v.y-80, vx:(Math.random()-.5)*40, vy:-(70+Math.random()*90), t:0, life:2.6+Math.random(), s:.16+Math.random()*.14});
@@ -292,15 +299,24 @@ function frame(now){
       v.ft+=dt; if (v.ft>.15){ v.ft=0; v.frame=(v.frame+1)%4; }
       if (Math.abs(v.x-v.seat.x)<2 && Math.abs(v.y-v.seat.y)<3){ v.x=v.seat.x; v.y=v.seat.y; v.state='sitting'; v.sitT=0; v.flip=false; }
     } else if (v.state==='sitting'){ v.sitT+=dt; v.frame=4+Math.min(3,Math.floor(v.sitT/.22)); if (v.sitT>.9){ v.state='sit'; v.frame=7; } }
-    else if (v.seat){ v.x+=(v.seat.x-v.x)*Math.min(1,dt*3); v.y+=(v.seat.y-v.y)*Math.min(1,dt*3); }      // glide when the grid grows
+    else if (v.seat){
+      v.giftT=Math.max(0,(v.giftT||0)-dt);
+      const progress=v.giftT>0 ? (7-v.giftT)/7 : 0;
+      const step=v.giftT>0 ? Math.sin(progress*Math.PI) : 0;
+      const targetX=v.seat.x+Math.sin(progress*Math.PI*2)*55*step;
+      const targetY=v.seat.y-100*step;
+      v.x+=(targetX-v.x)*Math.min(1,dt*6); v.y+=(targetY-v.y)*Math.min(1,dt*6);
+      if(v.giftT>1){ v.ft+=dt; if(v.ft>.15){v.ft=0;v.frame=(v.frame+1)%4;} v.flip=progress>.5; }
+      else if(v.state==='sit'){v.frame=7;v.flip=false;}
+    }      // glide when the grid grows
     v.fade=Math.min(1,v.fade+dt*2); v.glow=Math.max(0,v.glow-dt*.45); v.bow=Math.max(0,v.bow-dt*.7);
     const ws = v.state==='walk' ? (.26+.26*Math.max(0,Math.min(1,(v.y-FLOOR.yTop)/(FLOOR.yBot-FLOOR.yTop)))) * ((6/((GRID[cap]||GRID[24])[0]))**.7) : s;
     if (v.glow>0 || v.skin==='master'){ ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=Math.max(v.glow*.75, v.skin==='master'?.35+.1*Math.sin(t*1.6):0);
       const g=ctx.createRadialGradient(v.x,v.y-110*ws,8,v.x,v.y-110*ws,200*ws); g.addColorStop(0,'rgba(255,205,120,.95)'); g.addColorStop(1,'rgba(255,160,60,0)'); ctx.fillStyle=g; ctx.fillRect(v.x-230*ws,v.y-340*ws,460*ws,400*ws); ctx.restore(); }
-    const breathe = v.state==='sit' ? Math.sin(t*1.1+v.phase)*2*ws : 0, bowK = v.state==='sit' ? Math.sin(Math.min(1,v.bow)*Math.PI)*.04 : 0;
+    const breathe = v.state==='sit' && !(v.giftT>1) ? Math.sin(t*1.1+v.phase)*2*ws : 0, bowK = v.state==='sit' ? Math.sin(Math.min(1,v.bow)*Math.PI)*.04 : 0;
     ctx.save(); ctx.globalAlpha=v.fade; ctx.translate(v.x,v.y); if (bowK) ctx.transform(1,0,0,1-bowK,0,0);
     let topY;
-    if (anim){ const a=ANIM[v.skin], k=ws*1.05*260/a.seatH; if (v.flip) ctx.scale(-1,1); ctx.drawImage(A['anim_'+v.skin], v.frame*a.fw,0,a.fw,a.fh, -a.fw*k/2, -a.fh*k+breathe, a.fw*k, a.fh*k); topY=(v.state==='sit'?a.seatH:a.fh*.97)*k; }
+    if (anim){ const a=ANIM[v.skin], k=ws*1.05*260/a.seatH; if (v.flip) ctx.scale(-1,1); ctx.drawImage(A['anim_'+v.skin], v.frame*a.fw,0,a.fw,a.fh, -a.fw*k/2, -a.fh*k+breathe, a.fw*k, a.fh*k); topY=(v.state==='sit' && !(v.giftT>1)?a.seatH:a.fh*.97)*k; }
     else { const sk = v.skin==='master'?'monk':v.skin; sprite(A[sk]||A.man,0,breathe,ws*1.05); topY=260*ws; }
     ctx.restore();
     const ty=v.y-topY-14*ws/.4;
@@ -326,6 +342,7 @@ const w=c.measureText(s).width+60,x=540-w/2,y=322;c.fillStyle='rgba(40,16,6,.88)
 c.lineWidth=2;c.strokeStyle='rgba(226,176,79,.9)';c.stroke();c.fillStyle='#ffd98a';c.textAlign='center';c.textBaseline='middle';c.fillText(s,540,y+28);c.restore();}
 const _k='frame',_o=window[_k];window[_k]=function(t){_o(t);try{_g(t);}catch(e){}};})();
 layout(24); requestAnimationFrame(frame);
+if (new URLSearchParams(location.search).get('autoplay')==='1') startAudio().catch(()=>{});
 </script>
 </body>
 </html>

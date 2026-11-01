@@ -143,8 +143,10 @@ function renderPeople(){
   $('cnt').textContent = `${people.size} người`;
 }
 function setTT(st){
+  if (st.uniqueId && !$('uid').value) $('uid').value=st.uniqueId;
+  $('btnConnect').disabled = st.status==='connecting';
   const el=$('tt'); el.className='chip ' + (st.status==='connected'?'ok':st.status==='error'?'bad':'');
-  el.textContent = st.status==='connected' ? `TikTok: @${st.uniqueId} ✓` : st.status==='connecting' ? `TikTok: đang kết nối @${st.uniqueId}…` : st.status==='error' ? 'TikTok: lỗi kết nối' : 'TikTok: chưa kết nối';
+  el.textContent = st.status==='connected' ? `TikTok: @${st.uniqueId} ✓` : st.status==='connecting' ? `TikTok: đang kết nối @${st.uniqueId}…` : st.status==='error' ? `TikTok: ${st.error || 'lỗi kết nối'} · sẽ thử lại` : 'TikTok: chưa kết nối';
 }
 function connect(){
   ws = new WebSocket(`ws://${location.host}/ws?role=control`);

@@ -21,8 +21,10 @@ npm start
 
 1. Mở `http://localhost:3000/live/control.html` (bảng điều khiển).
 2. Bấm **Mở màn hình overlay 9:16**, rồi bấm **Bật âm thanh** một lần trong cửa sổ đó (trình duyệt chặn tự phát tiếng).
-3. Trong TikTok LIVE Studio: *Add source → Window capture* → chọn cửa sổ overlay. Với OBS thì dùng *Browser source* trỏ tới `http://localhost:3000/live/overlay.html`, kích thước 1080×1920.
+3. Trong TikTok LIVE Studio: *Add source → Window capture* → chọn cửa sổ overlay. Với OBS thì dùng *Browser source* trỏ tới `http://localhost:3000/live/overlay.html`, kích thước 1080×1920. Với nguồn **Link** trong LIVE Studio, dùng `http://localhost:3000/live/overlay.html?autoplay=1`, bật âm thanh và độ phân giải tùy chỉnh 1080×1920. Nếu trình duyệt chặn âm thanh, cần bấm bật âm thanh trong trang nguồn.
 4. Bật LIVE trên TikTok, nhập `@username` vào bảng điều khiển, bấm **Kết nối**.
+
+TikTok có thể yêu cầu thêm camera để tương tác trực tiếp trước khi cho bắt đầu LIVE, tùy tài khoản. Nếu Studio báo “A camera source is required”, cần chuẩn bị nguồn camera và nội dung phù hợp trước khi phát.
 
 Chưa live vẫn thử được: dùng **Thử tương tác**, **Đổ người mẫu 15/36/64/100** hoặc **Bot mô phỏng**.
 
@@ -30,8 +32,16 @@ Chưa live vẫn thử được: dùng **Thử tương tác**, **Đổ người 
 
 - **Bình luận bất kỳ**: được vào ngồi (tối đa 100 chỗ, chỗ ngồi tự mở rộng 24 → 36 → 64 → 100). Đầy chỗ thì người im lặng lâu nhất mà chưa tặng quà sẽ nhường chỗ.
 - **Bình luận đúng một từ** `nam`, `nữ`, `sư`, `ni`, `tiểu`, `bà`, `cao tăng`: đổi hình nhân vật. Câu "Nam mô A Di Đà Phật" không bị hiểu nhầm thành "nam".
-- **Tặng quà**: banner xướng tên, giọng đọc hồi hướng (lấy lời nguyện từ bình luận gần nhất của người đó nếu có), hiệu ứng theo giá trị quà, cộng điểm vào bảng Công Đức.
+- **Tặng quà**: vẫn thông báo khi hết chỗ ngồi; banner xướng tên, giọng đọc hồi hướng (dùng lời nguyện cố định để tránh đọc bình luận không phù hợp), hiệu ứng theo giá trị quà, cộng điểm vào bảng Công Đức.
 - **Thả tim**: tim bay trên đầu nhân vật.
+
+### Độ ổn định và lịch sử quà
+
+- Tự kết nối lại TikTok khi lỗi hoặc mất mạng, chờ tăng dần từ 2 đến 60 giây. Bấm **Ngắt** để dừng thử lại.
+- Quà thật được lưu vào `live/data/gifts.jsonl`; điểm được khôi phục khi người đó trở lại sau khi server khởi động lại. Đây là nhật ký tương tác, không phải số dư hay chứng từ thanh toán TikTok.
+- Quà mô phỏng và bot không ghi vào lịch sử quà thật. Thư mục dữ liệu không được phục vụ qua HTTP và không đưa vào Git.
+- Giọng đọc chỉ dùng lời nguyện có sẵn. Hàng đợi phía overlay giữ tối đa 10 câu, bỏ câu chờ quá 60 giây.
+- Chạy kiểm thử: `cd live && npm test`.
 
 ## Bảo mật
 

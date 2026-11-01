@@ -33,6 +33,13 @@ const settings = {
   gifts: { readAll: true, minDiamonds: 1 },
 };
 const viewers = new Map();           // id -> { id, name, skin, avatar, coins, joinedAt, lastAt, lastText, lastTextAt, demo }
+const DATA_DIR = path.join(__dirname, 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const LEDGER = path.join(DATA_DIR, 'gifts.jsonl');
+const totals = new Map();
+if (fs.existsSync(LEDGER)) for (const line of fs.readFileSync(LEDGER, 'utf8').split('\n')) {
+  try { const g = JSON.parse(line); totals.set(g.id, (totals.get(g.id) || 0) + g.coins); } catch {}
+}
 const startedAt = Date.now();
 let tiktok = null, tiktokState = { status: 'idle', uniqueId: '', error: '' };
 const log = [];
@@ -60,6 +67,8 @@ function pub(v){ return { id:v.id, name:v.name, skin:v.skin, avatar:v.avatar||''
 function snapshot(){ return { t:'state', settings, viewers:[...viewers.values()].map(pub), cap: capacity(), startedAt, tiktok: tiktokState }; }
 
 function seat(id, name, opts = {}){
+  if (!id) return { v:null, isNew:false };
+  id = String(id);
   let v = viewers.get(id);
   if (v){ v.lastAt = Date.now(); if (opts.avatar) v.avatar = opts.avatar; return { v, isNew:false }; }
   if (viewers.size >= 100){                     // full: the longest-quiet non-donor stands up
@@ -68,11 +77,22 @@ function seat(id, name, opts = {}){
     viewers.delete(quiet.id); broadcast({ t:'leave', id: quiet.id });
   }
   v = { id, name: (name||id).slice(0, 18), skin: opts.skin || DEFAULT_SKINS[viewers.size % DEFAULT_SKINS.length],
-        avatar: opts.avatar || '', coins: 0, joinedAt: Date.now(), lastAt: Date.now(), demo: !!opts.demo };
+        avatar: opts.avatar || '', coins: opts.demo ? 0 : (totals.get(id) || 0), joinedAt: Date.now(), lastAt: Date.now(), demo: !!opts.demo };
   viewers.set(id, v);
   broadcast({ t:'join', v: pub(v), cap: capacity() });
   return { v, isNew:true };
 }
+
+// Seats represent recent interaction, not TikTok concurrent viewers.
+const SEAT_IDLE_MS = 5 * 60_000;
+function expireSeats(now = Date.now()){
+  for (const [id, v] of viewers) {
+    if (now - v.lastAt < SEAT_IDLE_MS) continue;
+    viewers.delete(id);
+    broadcast({ t:'leave', id });
+  }
+}
+setInterval(expireSeats, 15_000);
 
 /* ------------------------------------------------------------- events in */
 function onChat(id, name, text, avatar){
@@ -85,13 +105,20 @@ function onChat(id, name, text, avatar){
   broadcast({ t:'chat', id, name: v.name, text });
 }
 
-function onGift(id, name, giftName, count, diamonds, avatar){
+function onGift(id, name, giftName, count, diamonds, avatar, simulated = false){
   giftName = String(giftName || 'quà').slice(0, 30); count = Math.max(1, Math.min(9999, +count || 1));
-  const { v } = seat(id, name, { avatar });
-  if (!v) return;
-  const coins = Math.max(1, (diamonds || 1) * (count || 1));
+  if (!id) return;
+  id = String(id);
+  const { v: seated } = seat(id, name, { avatar, demo: simulated });
+  const v = seated || { id, name: String(name || id).slice(0, 18), coins: totals.get(id) || 0 };
+  const coins = Math.max(1, Math.min(50000, Number(diamonds) || 1)) * count;
   v.coins += coins;
-  const prayer = (v.lastText && Date.now() - v.lastTextAt < 90_000 && v.lastText.length > 6) ? v.lastText : pickPrayer();
+  if (!simulated) {
+    totals.set(id, v.coins);
+    try { fs.appendFileSync(LEDGER, JSON.stringify({ at: new Date().toISOString(), id, name: v.name, giftName, count, coins }) + '\n'); }
+    catch (e) { addLog('Không lưu được lịch sử quà: ' + e.message); }
+  }
+  const prayer = pickPrayer();
   const tier = coins >= 99 ? 3 : coins >= 10 ? 2 : 1;
   const line = `Nam mô A Di Đà Phật. Phật tử ${spoken(v.name)} thành tâm dâng ${giftName}${count > 1 ? ', ' + count + ' lần' : ''}. ${prayer}.`;
   broadcast({ t:'gift', id, name: v.name, giftName, count, coins, total: v.coins, tier, prayer });
@@ -112,18 +139,20 @@ function say(text, meta = {}){ if (ttsQueue.length >= 15) { addLog('Hàng đợi
 async function pumpTTS(){
   if (ttsBusy || !ttsQueue.length) return; ttsBusy = true;
   const { text, meta } = ttsQueue.shift();
+  let tts, timeout;
   try {
     const file = `tts_${Date.now()}_${++ttsSeq}.mp3`;
-    const tts = new MsEdgeTTS();
-    await tts.setMetadata(settings.voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3);
+    tts = new MsEdgeTTS();
+    const deadline = new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Quá thời gian tạo giọng đọc')), 20000); });
+    await Promise.race([tts.setMetadata(settings.voice, OUTPUT_FORMAT.AUDIO_24KHZ_96KBITRATE_MONO_MP3), deadline]);
     const { audioStream } = tts.toStream(esc(text), { pitch: `${settings.pitch >= 0 ? '+' : ''}${settings.pitch}Hz`, rate: `${settings.rate >= 0 ? '+' : ''}${settings.rate}%` });
     const chunks = [];
-    await new Promise((res, rej) => { audioStream.on('data', c => chunks.push(c)); audioStream.on('close', res); audioStream.on('error', rej); });
-    try { tts.close(); } catch {}
+    await Promise.race([new Promise((res, rej) => { audioStream.on('data', c => chunks.push(c)); audioStream.on('close', res); audioStream.on('error', rej); }), deadline]);
     fs.writeFileSync(path.join(TTS_DIR, file), Buffer.concat(chunks));
     broadcast({ t:'tts', url: `/live/tts/${file}`, text, ...meta });
     const old = fs.readdirSync(TTS_DIR).sort(); while (old.length > 40) { try { fs.unlinkSync(path.join(TTS_DIR, old.shift())); } catch {} }
   } catch (e) { addLog('TTS lỗi: ' + (e?.message || e)); }
+  finally { clearTimeout(timeout); try { tts?.close(); } catch {} }
   ttsBusy = false; setTimeout(pumpTTS, 50);
 }
 
@@ -139,42 +168,84 @@ function scheduleChant(){ clearInterval(chantTimer); if (settings.autoChant) cha
 scheduleChant();
 
 /* --------------------------------------------------------------- TikTok */
-let TikTokLib = null;
+// Connector 2.5 uses proto/v3; retain legacy field fallbacks for older payloads.
+function eventUser(u = {}) {
+  const id = u.id || u.userId || u.uniqueId || u.displayId;
+  return { id: id ? String(id) : '', name: u.nickname || u.displayId || u.uniqueId || 'ẩn danh',
+    avatar: u.avatarThumb?.urlList?.[0] || u.avatarThumb?.url?.[0] || u.profilePicture?.url?.[0] || u.profilePicture?.urlList?.[0] || '' };
+}
+function eventGift(d) {
+  const g = d.gift || d.giftDetails || d.extendedGiftInfo || {};
+  return { type: Number(g.type ?? g.giftType), name: g.name || g.giftName || 'quà',
+    diamonds: Number(g.diamondCount ?? g.diamond_count) || 1,
+    count: Math.max(1, Number(d.repeatCount) || 1) };
+}
+let TikTokLib = null, connectionVersion = 0, retryTimer = null, retryAttempt = 0;
+function retryTikTok(uniqueId, version){
+  if (version !== connectionVersion) return;
+  clearTimeout(retryTimer);
+  const delay = Math.min(60000, 2000 * 2 ** Math.min(retryAttempt++, 5));
+  addLog(`Thử kết nối lại @${uniqueId} sau ${delay / 1000} giây`);
+  retryTimer = setTimeout(() => { if (version === connectionVersion) connectTikTok(uniqueId); }, delay);
+}
 async function connectTikTok(uniqueId){
   uniqueId = String(uniqueId || '').trim().replace(/^.*tiktok\.com\/@?/i, '').replace(/^@/, '').replace(/\/.*$/, '');
   if (!uniqueId) return;
-  await disconnectTikTok();
+  const version = disconnectTikTok(false);
   tiktokState = { status: 'connecting', uniqueId, error: '' }; broadcast({ t:'tiktok', ...tiktokState });
   try {
     TikTokLib ||= await import('tiktok-live-connector');
     const { TikTokLiveConnection, WebcastEvent, ControlEvent } = TikTokLib;
-    const conn = new TikTokLiveConnection(uniqueId, { enableExtendedGiftInfo: true, processInitialData: false });
-    const av = u => u?.profilePicture?.url?.[0] || u?.profilePicture?.urlList?.[0] || u?.avatarThumb?.urlList?.[0] || u?.avatarThumb?.url?.[0] || '';
-    const nm = u => u?.nickname || u?.uniqueId || 'ẩn danh';
-    conn.on(WebcastEvent.CHAT, d => onChat(d.user?.uniqueId || d.user?.userId, nm(d.user), d.comment, av(d.user)));
-    conn.on(WebcastEvent.GIFT, d => {
-      const type = d.giftDetails?.giftType ?? d.extendedGiftInfo?.type;
-      if (type === 1 && !d.repeatEnd) return;                       // streak still running
-      const gname = d.giftDetails?.giftName || d.extendedGiftInfo?.name || 'quà';
-      const dia = d.giftDetails?.diamondCount ?? d.extendedGiftInfo?.diamond_count ?? 1;
-      onGift(d.user?.uniqueId || d.user?.userId, nm(d.user), gname, d.repeatCount || 1, dia, av(d.user));
-      addLog(`🎁 ${nm(d.user)} tặng ${gname} x${d.repeatCount || 1}`);
+    const conn = new TikTokLiveConnection(uniqueId, { enableExtendedGiftInfo: false, fetchRoomInfoOnConnect: false, processInitialData: false });
+    if (version !== connectionVersion) return;
+    tiktok = conn;
+    conn.on(WebcastEvent.CHAT, d => {
+      if (version !== connectionVersion) return;
+      const u = eventUser(d.user); onChat(u.id, u.name, d.content ?? d.comment, u.avatar);
     });
-    conn.on(WebcastEvent.MEMBER, d => { if (settings.joinOnEnter) seat(d.user?.uniqueId, nm(d.user), { avatar: av(d.user) }); });
-    conn.on(WebcastEvent.LIKE, d => broadcast({ t:'like', id: d.user?.uniqueId, n: d.likeCount || 1 }));
-    conn.on(ControlEvent.DISCONNECTED, () => { tiktokState = { ...tiktokState, status: 'disconnected' }; broadcast({ t:'tiktok', ...tiktokState }); addLog('TikTok: mất kết nối'); });
+    const seenGifts = new Set();
+    conn.on(WebcastEvent.GIFT, d => {
+      if (version !== connectionVersion) return;
+      const u = eventUser(d.user), g = eventGift(d);
+      if (!u.id) { addLog('Bỏ sự kiện quà thiếu ID người gửi'); return; }
+      if (g.type === 1 && !d.repeatEnd) return;
+      const eventId = d.common?.msgId || d.common?.messageId;
+      if (eventId && seenGifts.has(String(eventId))) return;
+      if (eventId) { seenGifts.add(String(eventId)); if (seenGifts.size > 2000) seenGifts.delete(seenGifts.values().next().value); }
+      onGift(u.id, u.name, g.name, g.count, g.diamonds, u.avatar);
+      addLog(`🎁 ${u.name} tặng ${g.name} x${g.count}`);
+    });
+    conn.on(WebcastEvent.MEMBER, d => {
+      if (version !== connectionVersion || !settings.joinOnEnter) return;
+      const u = eventUser(d.user); seat(u.id, u.name, { avatar:u.avatar });
+    });
+    conn.on(WebcastEvent.LIKE, d => {
+      if(version === connectionVersion) broadcast({ t:'like', id:eventUser(d.user).id, n:d.likeCount || 1 });
+    });
+    conn.on(ControlEvent.DISCONNECTED, () => { if (version !== connectionVersion) return; tiktokState = { ...tiktokState, status: 'disconnected' }; broadcast({ t:'tiktok', ...tiktokState }); addLog('TikTok: mất kết nối'); retryTikTok(uniqueId, version); });
     conn.on(ControlEvent.ERROR, e => addLog('TikTok lỗi: ' + (e?.info || e?.message || e)));
     const st = await conn.connect();
+    if (version !== connectionVersion) { conn.disconnect(); return; }
+    clearTimeout(retryTimer); retryAttempt = 0;
     tiktok = conn;
     tiktokState = { status: 'connected', uniqueId, error: '', roomId: st?.roomId || '' };
     addLog(`✅ Đã kết nối live @${uniqueId}`);
   } catch (e) {
+    if (version !== connectionVersion) return;
+    retryTikTok(uniqueId, version);
     tiktokState = { status: 'error', uniqueId, error: String(e?.message || e) };
     addLog(`❌ Không kết nối được @${uniqueId}: ${tiktokState.error}`);
   }
   broadcast({ t:'tiktok', ...tiktokState });
 }
-async function disconnectTikTok(){ if (tiktok){ try { await tiktok.disconnect(); } catch {} tiktok = null; } tiktokState = { status:'idle', uniqueId:'', error:'' }; broadcast({ t:'tiktok', ...tiktokState }); }
+function disconnectTikTok(resetRetry = true){
+  ++connectionVersion; clearTimeout(retryTimer);
+  if (resetRetry) retryAttempt = 0;
+  const old = tiktok; tiktok = null;
+  if (old) { try { Promise.resolve(old.disconnect()).catch(() => {}); } catch {} }
+  tiktokState = { status:'idle', uniqueId:'', error:'' }; broadcast({ t:'tiktok', ...tiktokState });
+  return connectionVersion;
+}
 
 /* ------------------------------------------------------------- test data */
 const DEMO_NAMES = ['Diệu Hạnh','Minh Tâm','Thiện Đức','Huệ An','Tịnh Nhã','Quảng Trí','Chơn Như','Pháp Hỷ','Nguyên Thanh','Tâm Đăng','Diệu Liên','Trí Hải','Phước Lộc','Hạnh Nguyện','Như Ý','Bảo Châu','Thanh Lương','Từ Tâm','An Lạc','Giác Hoa','Tuệ Minh','Liên Hương','Thu Hà','Ngọc Lan','Đức Anh','Hải Đăng','Mai Anh','Phương Thảo','Trung Kiên','Quang Huy','Bảo Ngọc','Diệu Linh'];
@@ -193,7 +264,7 @@ function onControl(m){
     case 'connect': connectTikTok(m.uniqueId); break;
     case 'disconnect': disconnectTikTok(); addLog('Đã ngắt kết nối TikTok'); break;
     case 'chat': { const n = String(m.name || 'Khách').slice(0, 18); onChat('sim_' + n, n, String(m.text || 'Nam mô A Di Đà Phật').slice(0, 120)); break; }
-    case 'gift': { const n = String(m.name || 'Khách').slice(0, 18); onGift('sim_' + n, n, String(m.gift || 'Hoa hồng').slice(0, 30), clamp(m.count, 1, 99), clamp(m.diamonds, 1, 50000)); break; }
+    case 'gift': { const n = String(m.name || 'Khách').slice(0, 18); onGift('sim_' + n, n, String(m.gift || 'Hoa hồng').slice(0, 30), clamp(m.count, 1, 99), clamp(m.diamonds, 1, 50000), undefined, true); break; }
     case 'fill': fillDemo(clamp(m.n, 1, 100)); addLog(`Đổ người mẫu: ${viewers.size} người`); break;
     case 'clear': clearSeats(); break;
     case 'bell': broadcast({ t:'bell' }); break;
@@ -233,8 +304,8 @@ function setBots(on, n, pace){
       const id = ids[Math.floor(Math.random() * ids.length)], v = viewers.get(id), r = Math.random();
       if (r < .62) onChat(id, v.name, BOT_LINES[Math.floor(Math.random() * BOT_LINES.length)]);
       else if (r < .9) broadcast({ t:'like', id, n: 1 + Math.floor(Math.random() * 4) });
-      else if (r < .985) onGift(id, v.name, 'Hoa hồng', 1 + Math.floor(Math.random() * 3), 1);
-      else onGift(id, v.name, 'Đèn hoa sen', 1, 99);
+      else if (r < .985) onGift(id, v.name, 'Hoa hồng', 1 + Math.floor(Math.random() * 3), 1, undefined, true);
+      else onGift(id, v.name, 'Đèn hoa sen', 1, 99, undefined, true);
     }, every);
     addLog(`🤖 Bật ${n} bot, nhịp ${pace}`);
   } else {
@@ -261,6 +332,7 @@ const SEP = path.sep;
 function resolveStatic(urlPath){
   let p = urlPath === '/' ? '/live/control.html' : urlPath;
   if (!/^\/(assets|live)\//.test(p)) return null;
+  if (p.startsWith('/live/data/')) return null;
   if (p.split('/').some(seg => seg.startsWith('.') || seg === 'node_modules')) return null;
   if (/\.(mjs|json|md|log)$/i.test(p) && !p.startsWith('/assets/')) return null;      // never serve server code / package files
   const file = path.normalize(path.join(ROOT, p));
