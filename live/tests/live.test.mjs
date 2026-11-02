@@ -13,8 +13,8 @@ function setup(dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chua-test-'))) {
     broadcast(m){ messages.push(m); } };
   vm.createContext(sandbox);
   let code = source.slice(source.indexOf('const TTS_DIR'), source.indexOf('/* -------------------------------------------------------------- server */'));
-  vm.runInContext(code + `\nsettings.gifts.readAll=false; settings.gifts.minDiamonds=Infinity;
-    globalThis.api={seat,capacity,onGift,expireSeats,viewers,totals,connectTikTok,disconnectTikTok,
+  vm.runInContext(code + `\nrestoreRuntimeSession();settings.gifts.readAll=false; settings.gifts.minDiamonds=Infinity;
+    globalThis.api={saveEulerKey,readEulerKey,eulerStatus,snapshot,manualSeat,saveRuntimeSession,onChat,rebalanceDining,sessionRewards,DINING_SEATS,seat,capacity,giftWish,onGift,expireSeats,viewers,totals,connectTikTok,disconnectTikTok,
     useLib(lib){TikTokLib=lib},get state(){return tiktokState}};`, sandbox);
   return { api:sandbox.api, dir, messages, timers };
 }
@@ -123,8 +123,8 @@ test('idle seats expire, active seats stay and returning donors retain gift tota
     env.api.expireSeats(now);
     assert.equal(env.api.viewers.has('donor'), false);
     assert.equal(env.api.viewers.has('active'), true);
-    assert.equal(env.messages.at(-1).t, 'leave');
-    assert.equal(env.messages.at(-1).id, 'donor');
+    assert.ok(env.messages.some(m=>m.t==='leave' && m.id==='donor'));
+    assert.equal(env.messages.at(-1).t,'room');
     assert.equal(env.api.seat('donor', 'Donor').v.coins, 3);
   } finally { fs.rmSync(env.dir, {recursive:true, force:true}); }
 });
@@ -139,4 +139,166 @@ test('automatic capacity expands beyond 100 up to 400 with unique seats', () => 
     assert.equal(env.api.viewers.size, 400);
     assert.equal(env.api.capacity(), 400);
   } finally { fs.rmSync(env.dir, {recursive:true, force:true}); }
+});
+
+test('gift categories match exact localized names and unknown gifts use general wishes', () => {
+  const env=setup();
+  try {
+    for(const [name,topic] of [['Heart Me','Sức khỏe'],['GG','Thi cử'],[' Rose ','Tình duyên'],['Hoa hồng','Tình duyên'],['Ice Cream Cone','Gia đạo'],['Finger Heart','Bình an'],['Doughnut','Tài lộc']]) assert.equal(env.api.giftWish(name).topic,topic);
+    assert.equal(env.api.giftWish('Rose Bear').topic,'Lời chúc bình an');
+    env.api.onGift('u','User','Ice Cream Cone',3,1);
+    const event=env.messages.at(-1);
+    assert.equal(event.topic,'Gia đạo'); assert.equal(event.count,3);
+    assert.ok(event.prayer.startsWith('Chúc gia đình'));
+  } finally { fs.rmSync(env.dir,{recursive:true,force:true}); }
+});
+
+
+test('tavern: chat queues, one-coin gifts grant sausages, exact thresholds seat and upgrade', () => {
+  const env=setup();
+  try {
+    const a=env.api;
+    a.onChat('guest','Guest','hello');
+    const v=a.viewers.get('guest');
+    assert.equal(v.seatId,null); assert.equal(v.queuePosition,1);
+    a.onGift('guest','Guest','Rose',1,1,undefined,true);
+    assert.equal(v.sausages,1);assert.equal(v.sessionCoins,1);assert.equal(v.seatId,null);
+    a.onGift('guest','Guest','Rose',9,1,undefined,true);
+    assert.equal(v.sausages,10);assert.equal(v.sessionCoins,10);assert.equal(v.diningTier,'regular');assert.ok(v.seatId.startsWith('B'));
+    a.onGift('guest','Guest','Gift',1,89,undefined,true);
+    assert.equal(v.sessionCoins,99);assert.equal(v.diningTier,'regular');assert.equal(v.sausages,10);
+    a.onGift('guest','Guest','Rose',1,1,undefined,true);
+    assert.equal(v.sessionCoins,100);assert.equal(v.diningTier,'vip');assert.ok(v.seatId.startsWith('V'));
+  }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+test('tavern: full tiers queue FIFO, freed seats fill, return retains session rewards', () => {
+  const env=setup();
+  try {
+    const a=env.api;
+    for(let i=0;i<62;i++)a.onGift('r'+i,'Regular '+i,'Gift',1,10,undefined,true);
+    const seated=[...a.viewers.values()].filter(v=>v.seatId);
+    assert.equal(seated.length,60);assert.equal(new Set(seated.map(v=>v.seatId)).size,60);
+    assert.equal(a.viewers.get('r60').queuePosition,1);assert.equal(a.viewers.get('r61').queuePosition,2);
+    for(let i=0;i<21;i++)a.onGift('v'+i,'VIP '+i,'Gift',1,100,undefined,true);
+    assert.equal(a.viewers.get('v20').seatId,null);assert.equal(a.viewers.get('v20').queuePosition,1);
+    a.onGift('r0','Regular 0','Gift',1,90,undefined,true);
+    assert.equal(a.viewers.get('r0').seatId,null);assert.equal(a.viewers.get('r0').diningTier,'vip');
+    assert.ok(a.viewers.get('r60').seatId);assert.equal(a.viewers.get('r61').queuePosition,1);
+    a.viewers.delete('v0');a.rebalanceDining();
+    assert.ok(a.viewers.get('v20').seatId);assert.equal(a.viewers.get('r0').seatId,null);
+    a.viewers.delete('r60');a.rebalanceDining();a.seat('r60','Returns');
+    assert.equal(a.viewers.get('r60').sessionCoins,10);
+    assert.equal(a.viewers.get('r60').seatId,null); // r61 took the freed seat first
+  }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+test('tavern: historical gifts never grant session seating on a fresh server', () => {
+  const env=setup();
+  try {
+    env.api.onGift('old','Old','Gift',1,100);
+    const restored=setup(env.dir);const v=restored.api.seat('old','Old').v;
+    assert.equal(v.coins,100);assert.equal(v.sessionCoins,0);assert.equal(v.seatId,null);
+  }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+
+test('each tavern table has exactly ten distinct seats in its tier',()=>{
+  const env=setup();try{
+    const seats=env.api.DINING_SEATS;
+    assert.equal(seats.length,80);assert.equal(new Set(seats.map(s=>s.id)).size,80);
+    for(const id of new Set(seats.map(s=>s.tableId))){
+      const group=seats.filter(s=>s.tableId===id);assert.equal(group.length,10);
+      assert.equal(new Set(group.map(s=>s.x+','+s.y)).size,10);
+      assert.ok(group.every(s=>s.tier===group[0].tier));
+    }
+  }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+
+test('manual invitation seats a zero-coin viewer without creating a gift and can be revoked',()=>{
+ const env=setup();try{
+  const a=env.api;const v=a.seat('invited','Invited').v;
+  assert.equal(a.manualSeat('invited','regular'),true);assert.ok(v.seatId.startsWith('B'));assert.equal(v.sessionCoins,0);assert.equal(v.coins,0);assert.equal(v.sausages,0);
+  assert.equal(fs.existsSync(path.join(env.dir,'data/gifts.jsonl')),false);
+  assert.equal(a.manualSeat('invited','vip'),true);assert.ok(v.seatId.startsWith('V'));
+  assert.equal(a.manualSeat('invited','auto'),true);assert.equal(v.seatId,null);assert.equal(v.diningTier,'queue');
+  assert.equal(a.manualSeat('missing','vip'),false);assert.equal(a.manualSeat('invited','invalid'),false);assert.equal(a.viewers.size,1);
+ }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+test('manual invitation respects full VIP queue and never downgrades earned VIP rights',()=>{
+ const env=setup();try{
+  const a=env.api;for(let i=0;i<20;i++)a.onGift('vip'+i,'VIP','Gift',1,100,undefined,true);
+  const v=a.seat('host','Guest').v;a.manualSeat('host','vip');assert.equal(v.seatId,null);assert.equal(v.queuePosition,1);
+  a.viewers.delete('vip0');a.rebalanceDining();assert.ok(v.seatId.startsWith('V'));assert.equal(v.sessionCoins,0);
+  a.manualSeat('vip1','regular');assert.equal(a.viewers.get('vip1').diningTier,'vip');
+  a.manualSeat('vip1','auto');assert.equal(a.viewers.get('vip1').diningTier,'vip');
+ }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+test('runtime reload preserves manually invited guest, session rewards and assigned seat',()=>{
+ const env=setup();try{
+  env.api.onGift('guest','Guest','Rose',2,1,undefined,true);env.api.manualSeat('guest','vip');
+  const before=env.api.viewers.get('guest');const seatId=before.seatId;
+  const restored=setup(env.dir);const after=restored.api.viewers.get('guest');
+  assert.ok(after);assert.equal(after.seatId,seatId);assert.equal(after.sessionCoins,2);assert.equal(after.sausages,2);assert.equal(after.manualTier,'vip');
+ }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+
+test('Euler key is private on disk and is excluded from public state and logs',()=>{
+ const env=setup();try{
+  const key='unit-test-euler-key-not-real';assert.equal(env.api.saveEulerKey(key),true);
+  assert.equal(env.api.readEulerKey(),key);assert.equal(env.api.eulerStatus().configured,true);
+  assert.equal(fs.statSync(path.join(env.dir,'data/euler-key.json')).mode&0o777,0o600);
+  assert.equal(JSON.stringify(env.api.snapshot()).includes(key),false);assert.equal(JSON.stringify(env.messages).includes(key),false);
+  assert.equal(env.api.saveEulerKey('bad key'),false);assert.equal(env.api.readEulerKey(),key);
+ }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+test('Euler key reaches signer options and clears stale anonymous client cache',async()=>{
+ const env=setup();try{
+  const key='unit-test-configured-key';env.api.saveEulerKey(key);let options;
+  class Conn extends EventEmitter{constructor(id,o){super();options=o;}async connect(){return {roomId:'fake'};}disconnect(){}}
+  const SignConfig={cachedInstance:{old:true}};
+  env.api.useLib({TikTokLiveConnection:Conn,WebcastEvent:{CHAT:'chat',GIFT:'gift',MEMBER:'member',LIKE:'like'},ControlEvent:{ERROR:'error',DISCONNECTED:'disconnect'},SignConfig});
+  await env.api.connectTikTok('test');assert.equal(options.signApiKey,key);assert.equal(SignConfig.apiKey,key);assert.equal(SignConfig.cachedInstance,undefined);assert.equal(env.api.state.status,'connected');
+  assert.equal(JSON.stringify(env.messages).includes(key),false);
+ }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+test('Euler rate limit stops retries and redacts key in errors',async()=>{
+ const env=setup();try{
+  const key='unit-test-secret-key';env.api.saveEulerKey(key);
+  class Conn extends EventEmitter{async connect(){throw new Error('rate_limit_account_hour '+key);}disconnect(){}}
+  env.api.useLib({TikTokLiveConnection:Conn,WebcastEvent:{CHAT:'chat',GIFT:'gift',MEMBER:'member',LIKE:'like'},ControlEvent:{ERROR:'error',DISCONNECTED:'disconnect'},SignConfig:{}});
+  await env.api.connectTikTok('test');assert.equal(env.api.state.status,'rate_limited');assert.equal(env.api.state.autoRetry,false);
+  assert.equal(env.timers.filter(t=>!t.cancelled).length,0);assert.equal(JSON.stringify(env.messages).includes(key),false);
+ }finally{fs.rmSync(env.dir,{recursive:true,force:true});}
+});
+
+test('gender chat commands change one avatar while preserving table and rewards, including reload', () => {
+  const env=setup();
+  try {
+    env.api.onChat('gender-user','Guest','NỮ');
+    const v=env.api.viewers.get('gender-user');
+    assert.equal(v.skin,'woman');
+    env.api.onGift(v.id,v.name,'Rose',1,1);
+    env.api.onGift(v.id,v.name,'Gift',1,100);
+    const before={seatId:v.seatId,coins:v.coins,sessionCoins:v.sessionCoins,sausages:v.sausages,diningTier:v.diningTier};
+    for(const [command,skin] of [['nam','man'],['nu','woman'],['NAM!','man'],['nư\u0303','woman']]){
+      env.api.onChat(v.id,v.name,command);
+      assert.equal(v.skin,skin);
+      assert.equal(env.api.viewers.size,1);
+      for(const [k,value] of Object.entries(before)) assert.equal(v[k],value);
+      assert.ok(env.messages.some(m=>m.t==='skin'&&m.id===v.id&&m.skin===skin));
+    }
+    env.api.onChat(v.id,v.name,'Nam mô A Di Đà Phật');
+    assert.equal(v.skin,'woman');
+    env.api.saveRuntimeSession();
+    const restored=setup(env.dir).api.viewers.get(v.id);
+    assert.equal(restored.skin,'woman');
+    assert.equal(restored.seatId,v.seatId);
+  } finally { fs.rmSync(env.dir,{recursive:true,force:true}); }
 });
