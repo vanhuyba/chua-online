@@ -21,81 +21,26 @@ const PORT = +process.env.PORT || 3000;
 
 /* ------------------------------------------------------------------ state */
 const settings = {
-  title: 'Quán Nhậu Thanh Tịnh',
-  subtitle: 'Một góc bình yên · Một chút tâm tình',
+  title: 'Chánh Điện Tịnh Tâm',
+  subtitle: 'Nam Mô A Di Đà Phật',
   voice: 'vi-VN-NamMinhNeural',      // or vi-VN-HoaiMyNeural
   pitch: -18,                        // Hz
   rate: -20,                         // %
-  music: true, mo: false, moBpm: 52,
-  autoChant: false, chantEveryMin: 3,
+  music: true, mo: true, moBpm: 52,
+  autoChant: true, chantEveryMin: 3,
   seatMode: 'auto',                  // auto | 24 | 36 | 64 | 100 | 144 | 225 | 400
   joinOnEnter: false,                // also seat viewers who only enter the room
   gifts: { readAll: true, minDiamonds: 1 },
 };
 const viewers = new Map();           // id -> { id, name, skin, avatar, coins, joinedAt, lastAt, lastText, lastTextAt, demo }
-// Session rewards are separate from the durable all-time gift ledger.
-const sessionRewards = new Map();
-let admissionSeq = 0;
-const TABLES = Array.from({length:8}, (_,i)=>({
-  id: (i<2?'V':'B')+(i<2?i+1:i-1), tier:i<2?'vip':'regular',
-  x:i%2?775:305, y:880+Math.floor(i/2)*180, scale:.8+Math.floor(i/2)*.065,
-}));
-const DINING_SEATS = TABLES.flatMap(t=>Array.from({length:10},(_,i)=>({
-  id:t.id+'-'+i, tableId:t.id, tier:t.tier,
-  x:t.x+[-144,-72,0,72,144][i%5]*t.scale, y:t.y+(i<5?-10:104)*t.scale,
-  scale:.34*t.scale, gap:65*t.scale, side:i<5?'back':'front',
-})));
-function reward(id){
-  if(!sessionRewards.has(id)) sessionRewards.set(id,{sessionCoins:0,sausages:0});
-  return sessionRewards.get(id);
-}
-function diningTier(coins){return coins>=100?'vip':coins>=10?'regular':'queue';}
-function rebalanceDining(){
-  const used=new Set();
-  for(const v of viewers.values()){
-    const r=reward(v.id); Object.assign(v,r);
-    const autoTier=diningTier(r.sessionCoins);
-    const tier=autoTier==='vip'||r.manualTier==='vip'?'vip':autoTier==='regular'||r.manualTier==='regular'?'regular':'queue';
-    if(v.diningTier!==tier){v.diningTier=tier;v.seatId=null;v.eligibleOrder=++admissionSeq;}
-    const current=DINING_SEATS.find(s=>s.id===v.seatId && s.tier===tier);
-    if(current && !used.has(current.id)) used.add(current.id); else v.seatId=null;
-  }
-  for(const tier of ['vip','regular']){
-    const waiting=[...viewers.values()].filter(v=>v.diningTier===tier&&!v.seatId).sort((a,b)=>a.eligibleOrder-b.eligibleOrder);
-    for(const v of waiting){const free=DINING_SEATS.find(s=>s.tier===tier&&!used.has(s.id));if(!free)break;v.seatId=free.id;used.add(free.id);}
-  }
-  const queues={queue:0,regular:0,vip:0};
-  for(const v of [...viewers.values()].sort((a,b)=>a.eligibleOrder-b.eligibleOrder)){
-    v.queuePosition=v.seatId?0:++queues[v.diningTier];
-  }
-}
-function roomState(){return {t:'room',tables:TABLES,seats:DINING_SEATS,viewers:[...viewers.values()].map(pub)};}
-function syncDining(){rebalanceDining();broadcast(roomState());}
 const DATA_DIR = path.join(__dirname, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
-const EULER_KEY_FILE=path.join(DATA_DIR,'euler-key.json');
-function readEulerKey(){
-  const env=String(process.env.EULER_API_KEY||'').trim();if(env)return env;
-  try{const key=JSON.parse(fs.readFileSync(EULER_KEY_FILE,'utf8')).key;return typeof key==='string'?key.trim():'';}catch{return '';}
-}
-function eulerStatus(){return {configured:!!readEulerKey(),source:process.env.EULER_API_KEY?'environment':readEulerKey()?'local':'anonymous'};}
-function saveEulerKey(key){
-  if(process.env.EULER_API_KEY){broadcast({t:'eulerSaved',ok:false,message:'Máy đang dùng EULER_API_KEY từ môi trường; hãy cập nhật biến đó.'},'control');return false;}
-  if(typeof key!=='string'||key.trim().length<8||key.trim().length>4096||/\s/.test(key.trim())){
-    broadcast({t:'eulerSaved',ok:false,message:'API key không hợp lệ. Hãy dán nguyên key do Euler cấp, không kèm khoảng trắng.'},'control');return false;
-  }
-  try{
-    fs.writeFileSync(EULER_KEY_FILE+'.tmp',JSON.stringify({key:key.trim()}),{mode:0o600});fs.chmodSync(EULER_KEY_FILE+'.tmp',0o600);fs.renameSync(EULER_KEY_FILE+'.tmp',EULER_KEY_FILE);
-    broadcast({t:'eulerSaved',ok:true,...eulerStatus(),message:'Đã lưu key riêng trên máy. Bấm Kết nối khi kênh đang LIVE.'},'control');addLog('Đã cập nhật API key Euler riêng.');return true;
-  }catch{broadcast({t:'eulerSaved',ok:false,message:'Không lưu được key trên máy.'},'control');return false;}
-}
-function redactEulerSecret(value){const key=readEulerKey();return key?String(value).split(key).join('[API key đã ẩn]'):String(value);}
 const LEDGER = path.join(DATA_DIR, 'gifts.jsonl');
 const totals = new Map();
 if (fs.existsSync(LEDGER)) for (const line of fs.readFileSync(LEDGER, 'utf8').split('\n')) {
   try { const g = JSON.parse(line); totals.set(g.id, (totals.get(g.id) || 0) + g.coins); } catch {}
 }
-let startedAt = Date.now();
+const startedAt = Date.now();
 let tiktok = null, tiktokState = { status: 'idle', uniqueId: '', error: '' };
 const log = [];
 function addLog(s){ const line = `[${new Date().toLocaleTimeString('vi-VN')}] ${s}`; log.push(line); if (log.length > 300) log.shift(); broadcast({ t:'log', line }, 'control'); console.log(line); }
@@ -106,7 +51,11 @@ function capacity(){ if (settings.seatMode !== 'auto') return +settings.seatMode
 
 /* skins: sprites that exist in /assets. Walking strips exist for man / woman / granny. */
 // A comment changes the outfit only when it IS the keyword (≤ 3 words), so "Nam mô A Di Đà Phật" never reads as "nam".
-const SKIN_WORDS = [['woman',['nữ','nu','chị','chi','gái','gai']], ['man',['nam','anh','trai']], ['granny',['bà','ba','cô','co']]];
+const SKIN_WORDS = [
+  ['master', ['cao tăng','cao tang']], ['monk', ['sư','su','sư thầy','su thay','thầy','thay']], ['nun', ['ni','ni cô','ni co','sư cô','su co']],
+  ['child', ['tiểu','tieu','chú tiểu','chu tieu','bé','be']], ['granny', ['bà','ba','áo nâu','ao nau','cụ','cu']],
+  ['woman', ['nữ','nu','chị','chi','gái','gai']], ['man', ['nam','anh','trai']],
+];
 function skinFromText(t){
   const w = String(t).toLowerCase().normalize('NFC').replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
   if (!w || w.split(' ').length > 3) return null;
@@ -115,8 +64,8 @@ function skinFromText(t){
 }
 const DEFAULT_SKINS = ['man', 'woman', 'woman', 'man', 'granny'];
 
-function pub(v){ return { id:v.id, name:v.name, skin:v.skin, avatar:v.avatar||'', coins:v.coins, demo:!!v.demo, manualTier:v.manualTier||null, sessionCoins:v.sessionCoins||0, sausages:v.sausages||0, diningTier:v.diningTier||'queue', seatId:v.seatId||null, queuePosition:v.queuePosition||0 }; }
-function snapshot(){ return { t:'state', giftCatalog:GIFT_WISHES.map(({icon,label,topic})=>({icon,label,topic})), settings, euler:eulerStatus(), tables:TABLES, seats:DINING_SEATS, viewers:[...viewers.values()].map(pub), cap: capacity(), startedAt, tiktok: tiktokState }; }
+function pub(v){ return { id:v.id, name:v.name, skin:v.skin, avatar:v.avatar||'', coins:v.coins, demo:!!v.demo }; }
+function snapshot(){ return { t:'state', settings, viewers:[...viewers.values()].map(pub), cap: capacity(), startedAt, tiktok: tiktokState }; }
 
 function seat(id, name, opts = {}){
   if (!id) return { v:null, isNew:false };
@@ -131,22 +80,18 @@ function seat(id, name, opts = {}){
   v = { id, name: (name||id).slice(0, 18), skin: opts.skin || DEFAULT_SKINS[viewers.size % DEFAULT_SKINS.length],
         avatar: opts.avatar || '', coins: opts.demo ? 0 : (totals.get(id) || 0), joinedAt: Date.now(), lastAt: Date.now(), demo: !!opts.demo };
   viewers.set(id, v);
-  rebalanceDining();
   broadcast({ t:'join', v: pub(v), cap: capacity() });
-  broadcast(roomState());
   return { v, isNew:true };
 }
 
 // Seats represent recent interaction, not TikTok concurrent viewers.
 const SEAT_IDLE_MS = 5 * 60_000;
 function expireSeats(now = Date.now()){
-  let changed=false;
   for (const [id, v] of viewers) {
     if (now - v.lastAt < SEAT_IDLE_MS) continue;
-    viewers.delete(id); changed=true;
+    viewers.delete(id);
     broadcast({ t:'leave', id });
   }
-  if(changed) syncDining();
 }
 setInterval(expireSeats, 15_000);
 
@@ -174,33 +119,17 @@ function onGift(id, name, giftName, count, diamonds, avatar, simulated = false){
     try { fs.appendFileSync(LEDGER, JSON.stringify({ at: new Date().toISOString(), id, name: v.name, giftName, count, coins }) + '\n'); }
     catch (e) { addLog('Không lưu được lịch sử quà: ' + e.message); }
   }
-  const r=reward(id); r.sessionCoins+=coins;
-  const sausageCount=Number(diamonds)===1?count:0; r.sausages+=sausageCount;
-  syncDining();
-  const { prayer, topic, icon } = giftWish(giftName);
-  const tier = coins >= 100 ? 3 : coins >= 10 ? 2 : 1;
-  const line = `Cảm ơn ${spoken(v.name)} đã gửi ${giftName}${count > 1 ? ' nhân ' + count : ''}. ${sausageCount ? 'Quán tặng bạn '+sausageCount+' cây xúc xích.' : 'Mời bạn ghé bàn '+(r.sessionCoins>=100?'VIP':r.sessionCoins>=10?'bình dân':'khi đủ 10 xu')+'.'}`;
-  broadcast({ t:'gift', id, name: v.name, giftName, count, coins, total: v.coins, tier, prayer, tavernMessage:sausageCount?'Quán tặng bạn '+sausageCount+' cây xúc xích 🌭':r.sessionCoins>=100?'Mời bạn đến khu bàn VIP':r.sessionCoins>=10?'Mời bạn đến khu bàn bình dân':'Cảm ơn bạn đã ghé quán', topic, icon, sausageCount, sessionCoins:r.sessionCoins });
+  const prayer = pickPrayer();
+  const tier = coins >= 99 ? 3 : coins >= 10 ? 2 : 1;
+  const line = `Nam mô A Di Đà Phật. Phật tử ${spoken(v.name)} thành tâm dâng ${giftName}${count > 1 ? ', ' + count + ' lần' : ''}. ${prayer}.`;
+  broadcast({ t:'gift', id, name: v.name, giftName, count, coins, total: v.coins, tier, prayer });
   if (settings.gifts.readAll || coins >= settings.gifts.minDiamonds) say(line, { tag:'gift', id });
 }
 
-const GIFT_WISHES = [
-  { icon:'🎮', label:'GG', aliases:['gg'], topic:'Thi cử', wishes:['Chúc bạn ôn tập hiệu quả, giữ bình tĩnh, tự tin và làm bài thật tốt.'] },
-  { icon:'💗', label:'Heart Me', aliases:['heart me'], topic:'Sức khỏe', wishes:['Chúc bạn luôn mạnh khỏe, tinh thần thư thái và tràn đầy năng lượng.'] },
-  { icon:'🌹', label:'Hoa hồng', aliases:['rose','hoa hồng'], topic:'Tình duyên', wishes:['Chúc bạn gặp được người đồng hành chân thành, biết yêu thương và trân trọng nhau.'] },
-  { icon:'🍦', label:'Kem ốc quế', aliases:['ice cream cone','kem ốc quế'], topic:'Gia đạo', wishes:['Chúc gia đình bạn luôn hòa thuận, yêu thương và có nhiều khoảnh khắc sum vầy.'] },
-  { icon:'🫰', label:'Tim ngón tay', aliases:['finger heart','finger hearts','tim ngón tay','trái tim ngón tay'], topic:'Bình an', wishes:['Chúc bạn mỗi ngày đều bình an, lòng nhẹ nhàng và gặp nhiều điều tốt đẹp.'] },
-  { icon:'🍩', label:'Donut', aliases:['doughnut','donut','bánh donut','bánh vòng'], topic:'Tài lộc', wishes:['Chúc công việc của bạn thuận lợi, có thêm cơ hội tốt và tài chính ngày càng vững vàng.'] },
-];
-function giftWish(name){
-  const key = String(name).normalize('NFC').trim().toLowerCase().replace(/\s+/g,' ');
-  const entry = GIFT_WISHES.find(g => g.aliases.includes(key));
-  const wishes = entry?.wishes || [
-    'Chúc bạn và gia đình luôn mạnh khỏe, bình an và nhiều niềm vui.',
-    'Chúc bạn có một ngày nhẹ nhàng, ấm áp và nhiều điều tốt đẹp.',
-    'Chúc bạn giữ được tinh thần lạc quan và có những người thân yêu bên cạnh.',
-  ];
-  return { topic:entry?.topic || 'Lời chúc bình an', icon:entry?.icon || '🎁', prayer:wishes[Math.floor(Math.random()*wishes.length)] };
+function pickPrayer(){
+  const P = ['Nguyện cầu gia đạo bình an, vạn sự cát tường', 'Nguyện cầu cha mẹ mạnh khỏe, sống lâu', 'Nguyện hồi hướng công đức cho khắp pháp giới chúng sinh',
+             'Nguyện cầu thân tâm an lạc, phiền não tiêu trừ', 'Nguyện cầu công việc hanh thông, gia đình hạnh phúc'];
+  return P[Math.floor(Math.random() * P.length)];
 }
 const spoken = s => String(s).replace(/[_@.]+/g, ' ').replace(/[^\p{L}\p{N}\s]/gu, '').trim() || 'ẩn danh';
 
@@ -267,10 +196,8 @@ async function connectTikTok(uniqueId){
   tiktokState = { status: 'connecting', uniqueId, error: '' }; broadcast({ t:'tiktok', ...tiktokState });
   try {
     TikTokLib ||= await import('tiktok-live-connector');
-    const { TikTokLiveConnection, WebcastEvent, ControlEvent, SignConfig } = TikTokLib;
-    const apiKey=readEulerKey();
-    if(SignConfig&&SignConfig.apiKey!==(apiKey||undefined)){SignConfig.apiKey=apiKey||undefined;SignConfig.cachedInstance=undefined;}
-    const conn = new TikTokLiveConnection(uniqueId, { enableExtendedGiftInfo: false, fetchRoomInfoOnConnect: false, processInitialData: false, ...(apiKey?{signApiKey:apiKey}:{}) });
+    const { TikTokLiveConnection, WebcastEvent, ControlEvent } = TikTokLib;
+    const conn = new TikTokLiveConnection(uniqueId, { enableExtendedGiftInfo: false, fetchRoomInfoOnConnect: false, processInitialData: false });
     if (version !== connectionVersion) return;
     tiktok = conn;
     conn.on(WebcastEvent.CHAT, d => {
@@ -297,7 +224,7 @@ async function connectTikTok(uniqueId){
       if(version === connectionVersion) broadcast({ t:'like', id:eventUser(d.user).id, n:d.likeCount || 1 });
     });
     conn.on(ControlEvent.DISCONNECTED, () => { if (version !== connectionVersion) return; tiktokState = { ...tiktokState, status: 'disconnected' }; broadcast({ t:'tiktok', ...tiktokState }); addLog('TikTok: mất kết nối'); retryTikTok(uniqueId, version); });
-    conn.on(ControlEvent.ERROR, e => addLog('TikTok lỗi: ' + redactEulerSecret(e?.info || e?.message || e)));
+    conn.on(ControlEvent.ERROR, e => addLog('TikTok lỗi: ' + (e?.info || e?.message || e)));
     const st = await conn.connect();
     if (version !== connectionVersion) { conn.disconnect(); return; }
     clearTimeout(retryTimer); retryAttempt = 0;
@@ -306,11 +233,8 @@ async function connectTikTok(uniqueId){
     addLog(`✅ Đã kết nối live @${uniqueId}`);
   } catch (e) {
     if (version !== connectionVersion) return;
-    const message=redactEulerSecret(e?.message||e);
-    const limited=/rate_limit_|rate limited|rate limit|too many connections/i.test(message);
-    if(!limited)retryTikTok(uniqueId,version);
-    const period=message.includes('account_hour')?'theo giờ':message.includes('account_day')?'theo ngày':message.includes('account_minute')?'theo phút':'';
-    tiktokState={status:limited?'rate_limited':'error',uniqueId,error:limited?'Euler Stream đang giới hạn '+period+'. Đã dừng tự thử lại; chờ hạn mức hoặc lưu API key riêng.':message,autoRetry:!limited};
+    retryTikTok(uniqueId, version);
+    tiktokState = { status: 'error', uniqueId, error: String(e?.message || e) };
     addLog(`❌ Không kết nối được @${uniqueId}: ${tiktokState.error}`);
   }
   broadcast({ t:'tiktok', ...tiktokState });
@@ -333,31 +257,8 @@ function fillDemo(n){
     seat('demo_' + i, name, { demo: true, skin: ['man','woman','woman','man','granny','monk','nun','child'][i % 8] });
   }
 }
-function tavernDemo(){
-  // Only remove previous preview actors; real viewers and reward history stay intact.
-  for(const id of [...viewers.keys()]) if(id.startsWith('preview_')) {viewers.delete(id);sessionRewards.delete(id);broadcast({t:'leave',id});}
-  for(let i=0;i<86;i++){
-    const id='preview_'+i;
-    const sessionCoins=i<22?100:i<84?10:i===84?1:0;
-    sessionRewards.set(id,{sessionCoins,sausages:i===84?1:0});
-    seat(id,DEMO_NAMES[i%DEMO_NAMES.length],{demo:true,skin:i%2?'woman':'man'});
-  }
-  syncDining(); addLog('Preview: 20 VIP, 60 bình dân, 6 khách xếp hàng (có khách nhận xúc xích)');
-}
-function clearSeats(){ viewers.clear(); rebalanceDining(); broadcast(snapshot()); addLog('Đã làm trống bồ đoàn'); }
+function clearSeats(){ viewers.clear(); broadcast(snapshot()); addLog('Đã làm trống bồ đoàn'); }
 
-function manualSeat(id,tier){
-  const v=viewers.get(String(id||''));
-  if(!v||!['regular','vip','auto'].includes(tier)){
-    broadcast({t:'manualSeatResult',ok:false,message:!v?'Khách không còn trong quán.':'Hạng bàn không hợp lệ.'},'control');return false;
-  }
-  const r=reward(v.id);
-  if(tier==='auto')delete r.manualTier;else r.manualTier=tier;
-  // Remove the old public marker as Object.assign does not delete missing fields.
-  v.manualTier=r.manualTier||null;v.lastAt=Date.now();syncDining();saveRuntimeSession();
-  const message=v.seatId?`Đã mời ${v.name} vào bàn ${v.seatId.split('-')[0]}.`:v.diningTier==='queue'?`${v.name} trở về hàng chờ theo xu.`:`Hạng ${v.diningTier==='vip'?'VIP':'bình dân'} đầy ghế; ${v.name} chờ lượt #${v.queuePosition}.`;
-  broadcast({t:'manualSeatResult',ok:true,id:v.id,message},'control');addLog(message);return true;
-}
 /* ------------------------------------------------------------- control */
 function onControl(m){
   switch (m.cmd){
@@ -367,9 +268,6 @@ function onControl(m){
     case 'gift': { const n = String(m.name || 'Khách').slice(0, 18); onGift('sim_' + n, n, String(m.gift || 'Hoa hồng').slice(0, 30), clamp(m.count, 1, 99), clamp(m.diamonds, 1, 50000), undefined, true); break; }
     case 'fill': fillDemo(clamp(m.n, 1, MAX_SEATS)); addLog(`Đổ người mẫu: ${viewers.size} người`); break;
     case 'clear': clearSeats(); break;
-    case 'manualSeat': manualSeat(m.id,m.tier); break;
-    case 'setEulerKey': saveEulerKey(m.key); break;
-    case 'tavernDemo': tavernDemo(); break;
     case 'bell': broadcast({ t:'bell' }); break;
     case 'mo': broadcast({ t:'mo1' }); break;
     case 'chant': chant(); break;
@@ -413,39 +311,10 @@ function setBots(on, n, pace){
     addLog(`🤖 Bật ${n} bot, nhịp ${pace}`);
   } else {
     for (const id of [...viewers.keys()]) if (id.startsWith('bot_')) { viewers.delete(id); broadcast({ t:'leave', id }); }
-    syncDining();
     addLog('🤖 Tắt bot');
   }
   broadcast({ t:'bots', on }, 'control');
 }
-
-// Runtime checkpoint keeps manual invitations, session coins and seats across a reload.
-const SESSION_FILE=path.join(DATA_DIR,'session-state.json');
-function saveRuntimeSession(){
-  try{
-    const checkpoint={version:1,savedAt:Date.now(),startedAt,admissionSeq,settings,account:tiktokState.status==='connected'?tiktokState.uniqueId:'',viewers:[...viewers.values()],rewards:[...sessionRewards]};
-    fs.writeFileSync(SESSION_FILE+'.tmp',JSON.stringify(checkpoint));fs.renameSync(SESSION_FILE+'.tmp',SESSION_FILE);
-  }catch(e){addLog('Không lưu được trạng thái phiên: '+e.message);}
-}
-function restoreRuntimeSession(){
-  try{
-    if(!fs.existsSync(SESSION_FILE))return '';
-    const state=JSON.parse(fs.readFileSync(SESSION_FILE,'utf8'));
-    if(state.version!==1||!Array.isArray(state.viewers)||!Array.isArray(state.rewards)||Date.now()-state.savedAt>24*60*60_000)return '';
-    applySettings(state.settings||{});startedAt=Number(state.startedAt)||startedAt;admissionSeq=Number(state.admissionSeq)||0;
-    for(const [id,r]of state.rewards)if(typeof id==='string'&&r&&Number.isFinite(r.sessionCoins))sessionRewards.set(id,r);
-    for(const p of state.viewers){
-      if(!p?.id||viewers.size>=MAX_SEATS)continue;
-      const v={...p,id:String(p.id),lastAt:Number(p.lastAt)||state.savedAt,joinedAt:Number(p.joinedAt)||state.savedAt};
-      if(!v.demo){const latest=totals.get(v.id)||0;const delta=Math.max(0,latest-(Number(v.coins)||0));reward(v.id).sessionCoins+=delta;v.coins=latest;}
-      viewers.set(v.id,v);
-    }
-    rebalanceDining();expireSeats();addLog(`Khôi phục ${viewers.size} khách và quyền ngồi của phiên.`);
-    return typeof state.account==='string'?state.account:'';
-  }catch(e){addLog('Không khôi phục được trạng thái phiên: '+e.message);return '';}
-}
-let resumeAccount='';
-setInterval(saveRuntimeSession,2000);
 
 /* -------------------------------------------------------------- server */
 // Security notes (this file is meant to be shared publicly):
@@ -491,7 +360,6 @@ const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024,
     if (!origin) return true;                                   // OBS / non-browser clients send no Origin
     try { return okHost(new URL(origin).host); } catch { return false; }
   } });
-resumeAccount=restoreRuntimeSession();
 function broadcast(msg, only){ const s = JSON.stringify(msg); for (const c of wss.clients) if (c.readyState === 1 && (!only || c.role === only)) c.send(s); }
 wss.on('connection', (ws, req) => {
   ws.role = new URL(req.url, 'http://x').searchParams.get('role') === 'control' ? 'control' : 'overlay';
@@ -502,4 +370,4 @@ wss.on('connection', (ws, req) => {
     try { const m = JSON.parse(buf); if (m && m.t === 'ctl') onControl(m); } catch (e) { addLog('Lệnh lỗi: ' + e.message); }
   });
 });
-server.listen(PORT, HOST, () => {addLog(`Server chạy tại http://localhost:${PORT}  ·  Bảng điều khiển: http://localhost:${PORT}/live/control.html  ·  Overlay: http://localhost:${PORT}/live/overlay.html`);if(resumeAccount)connectTikTok(resumeAccount);});
+server.listen(PORT, HOST, () => addLog(`Server chạy tại http://localhost:${PORT}  ·  Bảng điều khiển: http://localhost:${PORT}/live/control.html  ·  Overlay: http://localhost:${PORT}/live/overlay.html`));
