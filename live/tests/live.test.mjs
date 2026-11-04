@@ -14,7 +14,7 @@ function setup(dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chua-test-'))) {
   vm.createContext(sandbox);
   let code = source.slice(source.indexOf('const TTS_DIR'), source.indexOf('/* -------------------------------------------------------------- server */'));
   vm.runInContext(code + `\nsettings.gifts.readAll=false; settings.gifts.minDiamonds=Infinity;
-    globalThis.api={seat,capacity,onGift,expireSeats,viewers,totals,connectTikTok,disconnectTikTok,
+    globalThis.api={seat,capacity,giftWish,onGift,expireSeats,viewers,totals,connectTikTok,disconnectTikTok,
     useLib(lib){TikTokLib=lib},get state(){return tiktokState}};`, sandbox);
   return { api:sandbox.api, dir, messages, timers };
 }
@@ -139,4 +139,16 @@ test('automatic capacity expands beyond 100 up to 400 with unique seats', () => 
     assert.equal(env.api.viewers.size, 400);
     assert.equal(env.api.capacity(), 400);
   } finally { fs.rmSync(env.dir, {recursive:true, force:true}); }
+});
+
+test('gift categories match exact localized names and unknown gifts use general wishes', () => {
+  const env=setup();
+  try {
+    for(const [name,topic] of [['Heart Me','Sức khỏe'],['GG','Thi cử'],[' Rose ','Tình duyên'],['Hoa hồng','Tình duyên'],['Ice Cream Cone','Gia đạo'],['Finger Heart','Bình an'],['Doughnut','Tài lộc']]) assert.equal(env.api.giftWish(name).topic,topic);
+    assert.equal(env.api.giftWish('Rose Bear').topic,'Lời chúc bình an');
+    env.api.onGift('u','User','Ice Cream Cone',3,1);
+    const event=env.messages.at(-1);
+    assert.equal(event.topic,'Gia đạo'); assert.equal(event.count,3);
+    assert.ok(event.prayer.startsWith('Chúc gia đình'));
+  } finally { fs.rmSync(env.dir,{recursive:true,force:true}); }
 });

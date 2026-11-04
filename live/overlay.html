@@ -33,29 +33,39 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
 .dot{width:18px;height:18px;border-radius:50%;background:#46d36b;box-shadow:0 0 12px #46d36b}
 /* side cards */
 .card{background:var(--panel);border:2px solid var(--line);border-radius:22px;padding:18px 22px;font-size:25px;line-height:1.4;backdrop-filter:blur(4px)}
-#guide{left:24px;top:630px;width:290px}
+#guide,#merit{left:120px;width:250px;padding:14px 18px;font-size:21px;border-radius:18px}
+#guide{top:630px}
 #guide div+div{border-top:1px solid rgba(226,176,79,.3);margin-top:10px;padding-top:10px}
 #guide b{color:var(--gold2)}
-#merit{right:24px;top:630px;width:290px;text-align:center}
-#merit h3{margin:0 0 8px;font-family:var(--display);font-size:30px;color:var(--gold2);letter-spacing:.06em}
+#merit{top:350px;width:230px;font-size:18px;max-height:220px;overflow:hidden;text-align:center}
+#merit h3{margin:0 0 8px;font-family:var(--display);font-size:21px;color:var(--gold2);letter-spacing:.02em}
 #merit ol{margin:0;padding:0;list-style:none;text-align:left;display:grid;gap:6px}
 #merit li{display:flex;justify-content:space-between;gap:10px}
 #merit li span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #merit li span:last-child{color:var(--gold2);font-variant-numeric:tabular-nums}
 #merit .empty{color:var(--muted);text-align:center}
+#giftMenu{right:24px;top:610px;width:290px;font-size:23px}
+#giftMenu h3{margin:0 0 10px;color:var(--gold2);font-family:var(--display);font-size:29px;text-align:center}
+#giftMenu ul{list-style:none;padding:0;margin:0;display:grid;gap:4px}
+#giftMenu li{display:flex;align-items:center;gap:10px;padding:4px 0}
+#giftMenu .icon{font-size:34px;width:42px;text-align:center}
+#giftMenu small{display:none;color:var(--muted);font-size:18px}
+#giftMenu p{font-size:18px;color:var(--muted);margin:12px 0 0;border-top:1px solid var(--line);padding-top:10px}
 /* chant banner + gift banner */
-#chant{left:110px;right:110px;top:330px;padding:22px 30px;text-align:center;border-radius:24px;border:2px solid var(--gold);
-  background:rgba(40,18,8,.86);opacity:0;transform:translateY(20px);transition:opacity .6s,transform .6s}
+#chant{left:120px;right:120px;top:1140px;padding:12px 18px;text-align:center;border-radius:20px;border:1px solid var(--line);
+  background:rgba(40,18,8,.38);opacity:0;transform:translateY(20px);transition:opacity .6s,transform .6s}
 #chant.show{opacity:1;transform:none}
-#chant h4{margin:0 0 8px;font-family:var(--display);color:var(--gold2);font-size:30px;letter-spacing:.1em}
-#chant p{margin:0;font-family:var(--display);font-style:italic;font-size:30px;line-height:1.45}
-#gift{left:70px;right:70px;top:330px;z-index:5;padding:30px 40px;text-align:center;border-radius:28px;border:3px solid var(--gold2);
-  background:radial-gradient(ellipse at 50% 0%,rgba(150,40,20,.95),rgba(50,14,6,.95));box-shadow:0 0 60px rgba(255,190,90,.45);
+#chant h4{margin:0 0 8px;font-family:var(--display);color:var(--gold2);font-size:23px;letter-spacing:.06em}
+#chant p{margin:0;font-family:var(--display);font-style:italic;font-size:23px;line-height:1.4}
+#gift{left:120px;right:120px;top:1140px;z-index:5;padding:12px 18px;text-align:center;border-radius:20px;border:1px solid var(--line);
+  background:radial-gradient(ellipse at 50% 0%,rgba(100,32,16,.32),rgba(35,14,6,.42));box-shadow:0 0 18px rgba(255,190,90,.12);
   opacity:0;transform:scale(.85);transition:opacity .45s,transform .45s cubic-bezier(.2,1.4,.4,1)}
 #gift.show{opacity:1;transform:none}
-#gift .who{font-family:var(--display);font-weight:700;font-size:52px;color:var(--gold2)}
-#gift .what{font-size:36px;margin-top:6px}
-#gift .pray{font-family:var(--display);font-style:italic;font-size:32px;color:var(--fg);margin-top:12px;opacity:.95}
+#gift .who{font-family:var(--display);font-weight:700;font-size:26px;color:var(--gold2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#gift .what{font-size:20px;margin-top:6px;overflow-wrap:anywhere}
+#gift .pray{font-family:var(--display);font-style:italic;font-size:21px;color:var(--fg);margin-top:7px;opacity:.95;overflow-wrap:anywhere}
+#chant,#gift{text-shadow:0 1px 3px #160a04,0 0 5px #160a04;box-sizing:border-box;max-height:300px;overflow:hidden;pointer-events:none}
+#chant:not(.show){visibility:hidden}
 /* enable sound (needed once: browsers block autoplay) */
 #unmute{position:absolute;z-index:9;left:50%;top:1540px;transform:translateX(-50%);font:600 36px var(--body);padding:22px 44px;border-radius:24px;border:3px solid var(--gold2);background:var(--red);color:#fff4dc;cursor:pointer}
 #conn{position:absolute;z-index:4;right:16px;bottom:12px;font-size:20px;color:var(--muted);opacity:.6}
@@ -76,6 +86,7 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden;font-family:var(-
     <div>🎁 Tặng quà được <b>xướng tên hồi hướng</b></div>
   </div>
   <div id="merit" class="card ui"><h3>✦ Công Đức ✦</h3><ol id="meritList"><li class="empty">Chưa có</li></ol></div>
+
   <div id="chant" class="ui"><h4>✦ TỤNG KINH ĐỊNH KỲ ✦</h4><p id="chantText"></p></div>
   <div id="gift" class="ui"><div class="who" id="giftWho"></div><div class="what" id="giftWhat"></div><div class="pray" id="giftPray"></div></div>
   <button id="unmute">🔔 Bấm để bật âm thanh</button>
@@ -150,16 +161,36 @@ function renderMerit(){
   top.forEach((v,i)=>{ const li=document.createElement('li'); const a=document.createElement('span'); a.textContent=`${i+1}. ${v.name}`; const b=document.createElement('span'); b.textContent=v.coins; li.append(a,b); ol.append(li); });
 }
 setInterval(()=>{ const s=Math.floor((Date.now()-startedAt)/1000); document.getElementById('timer').textContent=[s/3600,s/60%60,s%60].map(x=>String(Math.floor(x)).padStart(2,'0')).join(':'); },1000);
+function renderGiftCatalog(entries){
+  const list=document.getElementById('giftCatalog'); if(!list) return; list.replaceChildren();
+  for(const g of entries){
+    const li=document.createElement('li'), icon=document.createElement('span'), text=document.createElement('div'), topic=document.createElement('strong'), label=document.createElement('small');
+    icon.className='icon'; icon.textContent=g.icon; topic.textContent=g.topic; label.textContent=g.label;
+    text.append(topic,label); li.append(icon,text); list.append(li);
+  }
+}
 let giftHide=null;
+const giftBanners=[];
 function showGift(m){
+  giftBanners.push(m);
+  if(giftBanners.length>20) giftBanners.splice(1,1);
+  if(!giftHide) nextGiftBanner();
+}
+function nextGiftBanner(){
+  const m=giftBanners.shift(); if(!m) return;
   document.getElementById('giftWho').textContent = m.name;
-  document.getElementById('giftWhat').textContent = `thành tâm dâng ${m.giftName}${m.count>1?' ×'+m.count:''} · công đức ${m.total}`;
+  document.getElementById('giftWhat').textContent = `${m.icon || '🎁'} ${m.giftName} ×${m.count} · ${m.topic || 'Lời chúc bình an'}`;
   document.getElementById('giftPray').textContent = '“' + m.prayer + '”';
   document.getElementById('chant').classList.remove('show');
-  const el=document.getElementById('gift'); el.classList.add('show'); clearTimeout(giftHide); giftHide=setTimeout(()=>el.classList.remove('show'), m.tier>=3?9000:6500);
+  clearTimeout(chantHide);
+  const el=document.getElementById('gift'); el.classList.add('show');
+  giftHide=setTimeout(()=>{
+    el.classList.remove('show');
+    giftHide=setTimeout(()=>{giftHide=null;nextGiftBanner();},500);
+  },m.tier>=3?9000:6500);
 }
 let chantHide=null;
-function showChant(text){ document.getElementById('chantText').textContent=text; const el=document.getElementById('chant'); el.classList.add('show'); clearTimeout(chantHide); chantHide=setTimeout(()=>el.classList.remove('show'), 14000); }
+function showChant(text){ if(giftHide) return; document.getElementById('chantText').textContent=text; const el=document.getElementById('chant'); el.classList.add('show'); clearTimeout(chantHide); chantHide=setTimeout(()=>el.classList.remove('show'), 14000); }
 
 /* ======================= audio ======================= */
 let AC=null, master=null, musicGain=null, sfx=null, settings={ music:true, mo:true, moBpm:52 };
@@ -230,7 +261,7 @@ function connect(){
     const m=JSON.parse(e.data);
     switch(m.t){
       case 'state':
-        Object.assign(settings,m.settings); applySettings(); startedAt=m.startedAt;
+        Object.assign(settings,m.settings); applySettings(); renderGiftCatalog(m.giftCatalog || []); startedAt=m.startedAt;
         visitors.clear(); order=[]; layout(m.cap); for (const p of m.viewers) addVisitor(p,true); updateCount(); renderMerit(); break;
       case 'settings': Object.assign(settings,m.settings); applySettings(); if (m.cap!==cap){ layout(m.cap); updateCount(); } break;
       case 'join': if (m.cap!==cap) layout(m.cap); addVisitor(m.v, m.v.demo && visitors.size>8); updateCount(); break;

@@ -65,7 +65,7 @@ function skinFromText(t){
 const DEFAULT_SKINS = ['man', 'woman', 'woman', 'man', 'granny'];
 
 function pub(v){ return { id:v.id, name:v.name, skin:v.skin, avatar:v.avatar||'', coins:v.coins, demo:!!v.demo }; }
-function snapshot(){ return { t:'state', settings, viewers:[...viewers.values()].map(pub), cap: capacity(), startedAt, tiktok: tiktokState }; }
+function snapshot(){ return { t:'state', giftCatalog:GIFT_WISHES.map(({icon,label,topic})=>({icon,label,topic})), settings, viewers:[...viewers.values()].map(pub), cap: capacity(), startedAt, tiktok: tiktokState }; }
 
 function seat(id, name, opts = {}){
   if (!id) return { v:null, isNew:false };
@@ -119,17 +119,30 @@ function onGift(id, name, giftName, count, diamonds, avatar, simulated = false){
     try { fs.appendFileSync(LEDGER, JSON.stringify({ at: new Date().toISOString(), id, name: v.name, giftName, count, coins }) + '\n'); }
     catch (e) { addLog('Không lưu được lịch sử quà: ' + e.message); }
   }
-  const prayer = pickPrayer();
+  const { prayer, topic, icon } = giftWish(giftName);
   const tier = coins >= 99 ? 3 : coins >= 10 ? 2 : 1;
-  const line = `Nam mô A Di Đà Phật. Phật tử ${spoken(v.name)} thành tâm dâng ${giftName}${count > 1 ? ', ' + count + ' lần' : ''}. ${prayer}.`;
-  broadcast({ t:'gift', id, name: v.name, giftName, count, coins, total: v.coins, tier, prayer });
+  const line = `Cảm ơn ${spoken(v.name)} đã gửi ${giftName}${count > 1 ? ' nhân ' + count : ''}. ${prayer}`;
+  broadcast({ t:'gift', id, name: v.name, giftName, count, coins, total: v.coins, tier, prayer, topic, icon });
   if (settings.gifts.readAll || coins >= settings.gifts.minDiamonds) say(line, { tag:'gift', id });
 }
 
-function pickPrayer(){
-  const P = ['Nguyện cầu gia đạo bình an, vạn sự cát tường', 'Nguyện cầu cha mẹ mạnh khỏe, sống lâu', 'Nguyện hồi hướng công đức cho khắp pháp giới chúng sinh',
-             'Nguyện cầu thân tâm an lạc, phiền não tiêu trừ', 'Nguyện cầu công việc hanh thông, gia đình hạnh phúc'];
-  return P[Math.floor(Math.random() * P.length)];
+const GIFT_WISHES = [
+  { icon:'🎮', label:'GG', aliases:['gg'], topic:'Thi cử', wishes:['Chúc bạn ôn tập hiệu quả, giữ bình tĩnh, tự tin và làm bài thật tốt.'] },
+  { icon:'💗', label:'Heart Me', aliases:['heart me'], topic:'Sức khỏe', wishes:['Chúc bạn luôn mạnh khỏe, tinh thần thư thái và tràn đầy năng lượng.'] },
+  { icon:'🌹', label:'Hoa hồng', aliases:['rose','hoa hồng'], topic:'Tình duyên', wishes:['Chúc bạn gặp được người đồng hành chân thành, biết yêu thương và trân trọng nhau.'] },
+  { icon:'🍦', label:'Kem ốc quế', aliases:['ice cream cone','kem ốc quế'], topic:'Gia đạo', wishes:['Chúc gia đình bạn luôn hòa thuận, yêu thương và có nhiều khoảnh khắc sum vầy.'] },
+  { icon:'🫰', label:'Tim ngón tay', aliases:['finger heart','finger hearts','tim ngón tay','trái tim ngón tay'], topic:'Bình an', wishes:['Chúc bạn mỗi ngày đều bình an, lòng nhẹ nhàng và gặp nhiều điều tốt đẹp.'] },
+  { icon:'🍩', label:'Donut', aliases:['doughnut','donut','bánh donut','bánh vòng'], topic:'Tài lộc', wishes:['Chúc công việc của bạn thuận lợi, có thêm cơ hội tốt và tài chính ngày càng vững vàng.'] },
+];
+function giftWish(name){
+  const key = String(name).normalize('NFC').trim().toLowerCase().replace(/\s+/g,' ');
+  const entry = GIFT_WISHES.find(g => g.aliases.includes(key));
+  const wishes = entry?.wishes || [
+    'Chúc bạn và gia đình luôn mạnh khỏe, bình an và nhiều niềm vui.',
+    'Chúc bạn có một ngày nhẹ nhàng, ấm áp và nhiều điều tốt đẹp.',
+    'Chúc bạn giữ được tinh thần lạc quan và có những người thân yêu bên cạnh.',
+  ];
+  return { topic:entry?.topic || 'Lời chúc bình an', icon:entry?.icon || '🎁', prayer:wishes[Math.floor(Math.random()*wishes.length)] };
 }
 const spoken = s => String(s).replace(/[_@.]+/g, ' ').replace(/[^\p{L}\p{N}\s]/gu, '').trim() || 'ẩn danh';
 
